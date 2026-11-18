@@ -90,6 +90,9 @@ console.log
 sbom.json
 id_ed25519
 id_rsa
+# ЛР 11
+**/lab11-bpf/src/opencount
+**/lab11-bpf/src/openbench
 
 # редактори та системні файли
 .vscode/

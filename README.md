@@ -59,6 +59,10 @@ lab10/
 ├── README.md                — завдання роботи
 ├── starter/br2-external/    — зовнішнє дерево Buildroot: скопіюйте його до свого каталогу
 └── submissions/
+lab11/
+├── README.md                — завдання роботи
+├── starter/br2-external/    — модуль, програма eBPF і завантажувач: скопіюйте до свого каталогу
+└── submissions/
 tools/
 ├── make-bisect-repo.sh      — навчальний репозиторій для вправи з git bisect (ЛР 3)
 ├── echo-test.py             — перевірка echo-сервера (додаткова робота з моделей I/O)
@@ -74,7 +78,8 @@ tools/
 ├── lab07-test.py            — тести idinfo, permcheck, pwcheck і notes (ЛР 7)
 ├── lab08-test.py            — тести clocks, ticker, whenis, loc і таймера systemd (ЛР 8)
 ├── lab09-test.py            — тести vercmp, pkgaudit і пакета lab09-pkgtools (ЛР 9)
-└── lab10-test.py            — дерево Buildroot, образ і його запуск у QEMU (ЛР 10)
+├── lab10-test.py            — дерево Buildroot, образ і його запуск у QEMU (ЛР 10)
+└── lab11-test.py            — модуль, програма eBPF, верифікатор, Oops і ціна openat() (ЛР 11)
 ```
 
 ## Правила
