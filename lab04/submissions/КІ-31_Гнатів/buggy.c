@@ -1,12 +1,3 @@
-/* buggy.c — шість невеликих функцій, у кожній по одній помилці.
- *
- *   ./buggy N        де N від 1 до 6 — запустити сценарій N
- *
- * Помилки навмисні: це матеріал для частини 3. Спершу запустіть кожен
- * сценарій звичайною збіркою і запишіть, що бачите. Потім — під ASan,
- * UBSan і Valgrind. Виправляти — лише після того, як інструменти
- * вказали на помилку, а не «на око».
- */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,7 +5,8 @@
 /* 1. Копія рядка у верхньому регістрі. */
 static char *dup_upper(const char *s)
 {
-    char *r = malloc(strlen(s));
+    /* Виправлення 1: виділяємо strlen(s) + 1 байт, щоб умістився завершальний '\0'. */
+    char *r = malloc(strlen(s) + 1);
     if (r == NULL)
         return NULL;
     strcpy(r, s);
@@ -27,8 +19,10 @@ static char *dup_upper(const char *s)
 static void scenario1(void)
 {
     char *s = dup_upper("wordfreq");
-    printf("%s\n", s);
-    free(s);
+    if (s != NULL) {
+        printf("%s\n", s);
+        free(s);
+    }
 }
 
 /* 2. Однозв'язний список і його звільнення. */
@@ -39,6 +33,8 @@ static void scenario2(void)
     struct node *head = NULL;
     for (int i = 0; i < 5; i++) {
         struct node *n = malloc(sizeof *n);
+        if (n == NULL)
+            break;
         n->value = i;
         n->next = head;
         head = n;
@@ -46,8 +42,12 @@ static void scenario2(void)
     int sum = 0;
     for (struct node *p = head; p; p = p->next)
         sum += p->value;
-    for (struct node *p = head; p; p = p->next)
+    /* Виправлення 2: зберігаємо вказівник next до виклику free(p), щоб уникнути use-after-free. */
+    for (struct node *p = head; p != NULL; ) {
+        struct node *next = p->next;
         free(p);
+        p = next;
+    }
     printf("sum = %d\n", sum);
 }
 
@@ -57,7 +57,8 @@ static void scenario2(void)
 static void scenario3(void)
 {
     const char *words[] = { "a", "system", "software", "is", "wordfreq" };
-    int hist[MAXLEN] = { 0 };
+    /* Виправлення 3: масив на MAXLEN + 1 елементів і вивід до <= MAXLEN, бо індекс len == MAXLEN валідний. */
+    int hist[MAXLEN + 1] = { 0 };
     int canary = 12345;
     for (size_t i = 0; i < sizeof words / sizeof words[0]; i++) {
         size_t len = strlen(words[i]);
@@ -65,7 +66,7 @@ static void scenario3(void)
             len = MAXLEN;
         hist[len]++;
     }
-    for (int i = 1; i < MAXLEN; i++)
+    for (int i = 1; i <= MAXLEN; i++)
         printf("%d:%d ", i, hist[i]);
     printf("\ncanary = %d\n", canary);
 }
@@ -74,11 +75,11 @@ static void scenario3(void)
 static void scenario4(int argc)
 {
     const char *words[] = { "kernel", "module", "driver" };
-    int total;
+    /* Виправлення 4: ініціалізуємо total нулем перед накопиченням суми. */
+    int total = 0;
     for (int i = 0; i < 3; i++)
         total += (int)strlen(words[i]);
-    if (argc > 100)             /* argc тут лише для того, щоб компілятор
-                                   не обчислив усе заздалегідь */
+    if (argc > 100)
         total = 0;
     if (total > 10)
         printf("average = %d\n", total / 3);
@@ -92,10 +93,11 @@ static void scenario4(int argc)
 static void scenario5(void)
 {
     const char *s = "the quick brown fox jumps over the lazy dog";
-    int h = 0;
+    /* Виправлення 5: використовуємо unsigned int для хешу, бо переповнення signed int є UB. */
+    unsigned int h = 0;
     for (const char *p = s; *p; p++)
-        h = h * 31 + *p;
-    unsigned idx = (unsigned)h % NBUCKETS;
+        h = h * 31u + (unsigned char)*p;
+    unsigned idx = h % NBUCKETS;
     printf("bucket = %u\n", idx);
 }
 
@@ -112,7 +114,11 @@ static void scenario6(void)
 {
     for (int i = 0; i < 3; i++) {
         char *line = make_line("kernel", i);
-        printf("%s\n", line);
+        if (line != NULL) {
+            printf("%s\n", line);
+            /* Виправлення 6: звільняємо виділений у make_line буфер на кожній ітерації циклу. */
+            free(line);
+        }
     }
 }
 
