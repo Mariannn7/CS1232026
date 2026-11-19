@@ -1,32 +1,52 @@
-/* overflow.c — «захист» від переповнення, який компілятор має право видалити.
- *
- *   ./overflow-gcc-O0 2147483647 1
- *
- * Зберіть чотири варіанти (gcc і clang, -O0 і -O2) і порівняйте вивід.
- */
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-/* Додає a і b. Повертає -1, якщо сума не вміщується в int. */
+static int parse_int(const char *s, int *out)
+{
+    if (s == NULL || *s == '\0') {
+        return -1;
+    }
+
+    char *end = NULL;
+    errno = 0;
+    long val = strtol(s, &end, 10);
+
+    if (errno == ERANGE || end == s || *end != '\0') {
+        return -1;
+    }
+    if (val < INT_MIN || val > INT_MAX) {
+        return -1;
+    }
+
+    *out = (int)val;
+    return 0;
+}
+
 static int add_checked(int a, int b, int *out)
 {
-    int s = a + b;
-    if (b > 0 && s < a)         /* «якщо додали додатне, а стало менше» */
+    if ((b > 0 && a > INT_MAX - b) || (b < 0 && a < INT_MIN - b)) {
         return -1;
-    *out = s;
+    }
+    *out = a + b;
     return 0;
 }
 
 int main(int argc, char *argv[])
 {
-    if (argc != 3) {
+    int a, b, r;
+
+    if (argc != 3 || parse_int(argv[1], &a) != 0 || parse_int(argv[2], &b) != 0) {
         fprintf(stderr, "usage: overflow A B\n");
         return 2;
     }
-    int r;
-    if (add_checked(atoi(argv[1]), atoi(argv[2]), &r) != 0)
+
+    if (add_checked(a, b, &r) != 0) {
         puts("overflow detected");
-    else
+    } else {
         printf("sum = %d\n", r);
+    }
+
     return 0;
 }
