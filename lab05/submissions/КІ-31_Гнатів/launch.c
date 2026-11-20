@@ -156,14 +156,49 @@ static int run_foreground(const struct opts *o)
 
 static int run_daemon(const struct opts *o)
 {
-    /* TODO 3: подвійний fork, setsid, umask(022), chdir("/") (якщо немає -C),
-     * PID онука — першим повідомленням ST_PID у канал звіту, потім
-     * child_setup_and_exec. Батько: дочекатися проміжного процесу, прочитати
-     * PID демона, потім дочекатися EOF або помилки; у разі успіху — PID-файл
-     * і "daemon pid=%d cmd=%s\n" у журнал. Покроково — у частині 3 роботи. */
-    (void)o;
-    fprintf(stderr, "launch: -d not implemented\n");
-    return 1;
+    int pfd[2];
+    if (pipe2(pfd, O_CLOEXEC) == -1) { fprintf(stderr, "launch: pipe2: %s\n", strerror(errno)); return 1; }
+    fflush(NULL);
+    pid_t p1 = fork();
+    if (p1 == -1) { int e = errno; close(pfd[0]); close(pfd[1]); fprintf(stderr, "launch: fork: %s\n", strerror(e)); return 1; }
+    if (p1 == 0) {
+        close(pfd[0]);
+        if (setsid() == -1) child_fail(pfd[1], ST_EXEC, errno);
+        pid_t p2 = fork();
+        if (p2 == -1) child_fail(pfd[1], ST_EXEC, errno);
+        if (p2 > 0) _exit(0);
+        umask(022);
+        if (!o->dir && chdir("/") == -1) child_fail(pfd[1], ST_CHDIR, errno);
+        struct report pr = { ST_PID, (int)getpid() };
+        if (write(pfd[1], &pr, sizeof pr) != (ssize_t)sizeof pr) _exit(1);
+        child_setup_and_exec(o, pfd[1]);
+    }
+    close(pfd[1]);
+    wait_child(p1, NULL);
+    struct report r;
+    int rr = read_report(pfd[0], &r);
+    if (rr <= 0 || r.stage != ST_PID) {
+        close(pfd[0]);
+        if (rr > 0) fprintf(stderr, "launch: %s: %s\n", stage_name(o, r.stage), strerror(r.value));
+        return 1;
+    }
+    pid_t dpid = (pid_t)r.value;
+    rr = read_report(pfd[0], &r);
+    close(pfd[0]);
+    if (rr > 0) {
+        fprintf(stderr, "launch: %s: %s\n", stage_name(o, r.stage), strerror(r.value));
+        logmsg("fail pid=%d cmd=%s error=%d\n", (int)dpid, o->argv[0], r.value);
+        if (r.stage == ST_EXEC) return r.value == ENOENT ? 127 : 126;
+        return 1;
+    }
+    if (o->pidfile) {
+        FILE *pf = fopen(o->pidfile, "we");
+        if (!pf) { fprintf(stderr, "launch: %s: %s\n", o->pidfile, strerror(errno)); return 1; }
+        fprintf(pf, "%d\n", (int)dpid);
+        fclose(pf);
+    }
+    logmsg("daemon pid=%d cmd=%s\n", (int)dpid, o->argv[0]);
+    return 0;
 }
 
 int main(int argc, char *argv[])
