@@ -63,17 +63,26 @@ static int collect_fds(struct fdinfo *out, int max)
 
 /* Знайти в /proc/self/maps рядок, діапазон якого містить addr, і
  * скопіювати в name останнє поле (шлях, [heap], [stack]) або «anon». */
+
 static int region_of(const void *addr, char *name, size_t size)
 {
-    /* TODO 1: відкрити /proc/self/maps і знайти рядок, діапазон якого
-     * «початок-кінець» містить addr (початок включно, кінець — ні).
-     * Записати в name права доступу і останнє поле рядка — шлях, [heap],
-     * [stack] — або «anon», якщо поля немає: snprintf(name, size, "%s %s", ...).
-     * Повернути 0, якщо знайдено, і -1 інакше. Формат рядка: man 5 proc,
-     * розділ /proc/pid/maps. Підказка: sscanf з %lx і %n. */
-    (void)addr;
-    snprintf(name, size, "TODO");
-    return -1;
+    FILE *f = fopen("/proc/self/maps", "re");
+    if (!f) return -1;
+    unsigned long t = (unsigned long)addr, st, en;
+    char perms[16], line[PATH_MAX + 256];
+    int pos = 0, ok = -1;
+    while (fgets(line, sizeof line, f)) {
+        if (sscanf(line, "%lx-%lx %15s %*x %*x:%*x %*u %n", &st, &en, perms, &pos) >= 3 && t >= st && t < en) {
+            char *p = line + pos;
+            while (*p == 32 || *p == 9) p++;
+            size_t n = strlen(p);
+            while (n && (p[n-1] == 10 || p[n-1] == 32 || p[n-1] == 9)) p[--n] = 0;
+            snprintf(name, size, "%s %s", perms, n ? p : "anon");
+            ok = 0; break;
+        }
+    }
+    fclose(f);
+    return ok;
 }
 
 static void print_region(FILE *out, const char *what, const void *addr)
