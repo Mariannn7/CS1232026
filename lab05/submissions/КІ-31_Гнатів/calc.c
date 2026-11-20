@@ -1,19 +1,6 @@
-/* calc — калькулятор цілих виразів з відновленням після помилок через
- * setjmp/longjmp (ЛР 5, частина 5).
- *
- * Читає вирази з stdin по одному на рядок і друкує результат або
- * «error: опис». Помилка в рядку не зупиняє роботу: калькулятор
- * переходить до наступного рядка. Наприкінці — «lines=N errors=M»;
- * код завершення 0, якщо помилок не було, інакше 1.
- *
- *   вираз   := доданок (('+' | '-') доданок)*
- *   доданок := множник (('*' | '/') множник)*
- *   множник := ЧИСЛО | '-' множник | '(' вираз ')'
- *
- * У цьому файлі дві навмисні вади (шукайте їх у частині 5 роботи) і TODO 5.
- */
-#define _POSIX_C_SOURCE 200809L   /* strdup */
+#define _POSIX_C_SOURCE 200809L
 #include <ctype.h>
+#include <limits.h>
 #include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,11 +8,10 @@
 
 #define MAX_DEPTH 200
 
-static jmp_buf on_error;            /* куди повертатися після помилки   */
-static const char *err_msg;         /* що сталося                       */
-static const char *p;               /* поточна позиція в розбираному рядку */
+static jmp_buf on_error;
+static const char *err_msg;
+static const char *p;
 
-/* Не повертається: стрибає в main, через усі кадри парсера одразу. */
 static void fail(const char *msg)
 {
     err_msg = msg;
@@ -54,16 +40,14 @@ static long long factor(int depth)
     if (*p == '-') {
         p++;
         long long v = factor(depth + 1);
-        /* TODO 5: -v переповнюється для одного значення v. Якого? */
+        if (v == LLONG_MIN) fail("overflow");
         return -v;
     }
     if (!isdigit((unsigned char)*p)) fail("syntax error");
     long long v = 0;
     while (isdigit((unsigned char)*p)) {
-        /* TODO 5: v * 10 + цифра може не вміститися в long long.
-         * Перевірка — через __builtin_mul_overflow / __builtin_add_overflow,
-         * повідомлення — fail("overflow"). */
-        v = v * 10 + (*p - '0');
+        if (__builtin_mul_overflow(v, 10, &v) || __builtin_add_overflow(v, *p - '0', &v))
+            fail("overflow");
         p++;
     }
     return v;
@@ -79,10 +63,11 @@ static long long term(int depth)
         p++;
         long long r = factor(depth);
         if (op == '*') {
-            v *= r;                 /* TODO 5: переповнення */
+            if (__builtin_mul_overflow(v, r, &v)) fail("overflow");
         } else {
             if (r == 0) fail("division by zero");
-            v /= r;                 /* TODO 5: є одна пара, для якої і це переповнення */
+            if (v == LLONG_MIN && r == -1) fail("overflow");
+            v /= r;
         }
     }
 }
@@ -96,18 +81,23 @@ static long long expr(int depth)
         if (op != '+' && op != '-') return v;
         p++;
         long long r = term(depth);
-        v = (op == '+') ? v + r : v - r;   /* TODO 5: переповнення */
+        if (op == '+') {
+            if (__builtin_add_overflow(v, r, &v)) fail("overflow");
+        } else {
+            if (__builtin_sub_overflow(v, r, &v)) fail("overflow");
+        }
     }
 }
 
 int main(void)
 {
     char buf[1024];
-    int lines = 0, errors = 0;
-    char *text = NULL;
+    volatile int lines = 0, errors = 0;
+    char *volatile text = NULL;
 
     if (setjmp(on_error) != 0) {
-        /* Сюди потрапляємо з fail(): другий «вихід» із setjmp */
+        free(text);
+        text = NULL;
         errors++;
         printf("error: %s\n", err_msg);
     }
@@ -115,7 +105,7 @@ int main(void)
     while (fgets(buf, sizeof buf, stdin)) {
         lines++;
         buf[strcspn(buf, "\n")] = '\0';
-        text = strdup(buf);         /* робоча копія рядка для парсера */
+        text = strdup(buf);
         if (!text) {
             perror("calc");
             return 2;
@@ -126,6 +116,7 @@ int main(void)
         if (*p != '\0') fail("trailing garbage");
         printf("%lld\n", v);
         free(text);
+        text = NULL;
     }
     printf("lines=%d errors=%d\n", lines, errors);
     return errors ? 1 : 0;
