@@ -53,15 +53,22 @@ static void print_self(void)
  * Повертає масив (звільняє викликач) і кількість через *count. */
 static gid_t *user_groups(const char *user, gid_t primary, int *count)
 {
-    /* TODO 1. Зараз функція повертає лише первинну групу.
-     * Отримайте повний список getgrouplist: якщо масиву замало, функція
-     * повертає -1 і записує в *ngroups потрібний розмір — збільште масив
-     * і повторіть. Не покладайтеся на сталий розмір масиву. */
-    (void)user;
-    gid_t *g = malloc(sizeof *g);
+    int ngroups = 8;
+    gid_t *g = malloc(sizeof *g * (size_t)ngroups);
     if (!g) return NULL;
-    g[0] = primary;
-    *count = 1;
+    if (getgrouplist(user, primary, g, &ngroups) == -1) {
+        gid_t *tmp = realloc(g, sizeof *g * (size_t)ngroups);
+        if (!tmp) {
+            free(g);
+            return NULL;
+        }
+        g = tmp;
+        if (getgrouplist(user, primary, g, &ngroups) == -1) {
+            free(g);
+            return NULL;
+        }
+    }
+    *count = ngroups;
     return g;
 }
 
