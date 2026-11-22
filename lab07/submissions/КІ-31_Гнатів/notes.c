@@ -48,12 +48,31 @@ static const char *store_path(void)
  * цьому перевіркою і завершіть процес, якщо це не так. */
 static void drop_privileges(void)
 {
-    /* TODO 5. Зробіть справжній, ефективний і збережений GID рівними
-     * справжньому GID, потім те саме для UID (setresgid, setresuid; чому
-     * саме в такому порядку — питання 9). Перевіряйте код повернення
-     * кожного виклику. Потім переконайтеся, що повернути ефективний UID
-     * і GID, з якими програма стартувала, неможливо, і завершіть процес
-     * з кодом 2, якщо це не так. */
+    uid_t ruid = getuid(), old_euid = geteuid();
+    gid_t rgid = getgid(), old_egid = getegid();
+
+    if (setresgid(rgid, rgid, rgid) != 0)
+        die("setresgid");
+    if (setresuid(ruid, ruid, ruid) != 0)
+        die("setresuid");
+
+    uid_t r, e, su;
+    gid_t gr, ge, sg;
+    if (getresuid(&r, &e, &su) != 0 || getresgid(&gr, &ge, &sg) != 0)
+        die("getresuid/getresgid");
+    if (r != ruid || e != ruid || su != ruid ||
+        gr != rgid || ge != rgid || sg != rgid) {
+        fprintf(stderr, "notes: привілеї не скинуто повністю\n");
+        exit(2);
+    }
+    if (old_egid != rgid && setegid(old_egid) == 0) {
+        fprintf(stderr, "notes: вдалося повернути GID\n");
+        exit(2);
+    }
+    if (old_euid != ruid && seteuid(old_euid) == 0) {
+        fprintf(stderr, "notes: вдалося повернути UID\n");
+        exit(2);
+    }
 }
 
 static void print_id(void)
