@@ -45,14 +45,19 @@ static int in_groups(const struct creds *c, gid_t g)
 static int decide(mode_t mode, uid_t owner, gid_t group, int want,
                   const struct creds *c)
 {
-    /* TODO 2. Повторіть рішення ядра (generic_permission у fs/namei.c):
-     *  — ефективний UID 0: біти прав не діють, але виконати звичайний
-     *    файл можна лише тоді, коли x є хоча б в одному класі;
-     *  — інакше обирається рівно один клас: власник, якщо UID збігся;
-     *    група, якщо група файла є серед груп процесу; решта — інші;
-     *  — дозвіл, якщо в обраному класі є всі запитані біти. */
-    (void)mode; (void)owner; (void)group; (void)want; (void)c;
-    return 0;
+    if (c->uid == 0) {
+        if (S_ISREG(mode) && (want & WANT_X))
+            return (mode & 0111) != 0;
+        return 1;
+    }
+    int bits;
+    if (c->uid == owner)
+        bits = (mode >> 6) & 7;
+    else if (in_groups(c, group))
+        bits = (mode >> 3) & 7;
+    else
+        bits = mode & 7;
+    return (bits & want) == want;
 }
 
 /* ---------------- decide ---------------- */
