@@ -79,15 +79,17 @@ static int do_hash(const char *prefix, unsigned long count)
 /* Чи відповідає пароль pw збереженому хешу stored? 1 — так, 0 — ні, -1 — помилка. */
 static int check_password(const char *pw, const char *stored)
 {
-    /* TODO 3. Обчисліть хеш пароля з тими самими методом, вартістю й сіллю,
-     * що й у stored (для crypt це і є другий аргумент), і порівняйте з stored.
-     *  — crypt не годиться: він повертає статичний буфер; беріть crypt_rn
-     *    зі struct crypt_data, яку виділіть у купі (вона займає ~32 КіБ);
-     *  — помилку libxcrypt повідомляє рядком, що починається з '*', або NULL;
-     *  — порівнюйте функцією same(), а не strcmp: чому — питання 6;
-     *  — перед поверненням затріть struct crypt_data (explicit_bzero). */
-    (void)pw; (void)stored; (void)same;
-    return -1;
+    struct crypt_data *cd = calloc(1, sizeof *cd);
+    if (!cd) return -1;
+    char *h = crypt_rn(pw, stored, cd, (int)sizeof *cd);
+    int res;
+    if (!h || h[0] == '*')
+        res = -1;
+    else
+        res = same(h, stored) ? 1 : 0;
+    explicit_bzero(cd, sizeof *cd);
+    free(cd);
+    return res;
 }
 
 static int do_verify(const char *stored)
@@ -153,16 +155,38 @@ static int converse(int n, const struct pam_message **msg,
                     struct pam_response **resp, void *data)
 {
     (void)data;
-    /* TODO 4. Для кожного з n повідомлень:
-     *  — PAM_PROMPT_ECHO_OFF (пароль) і PAM_PROMPT_ECHO_ON: прочитати відповідь
-     *    read_secret (луну вимкнути лише для ECHO_OFF) і покласти strdup-копію
-     *    в r[i].resp; локальний буфер затерти;
-     *  — PAM_ERROR_MSG і PAM_TEXT_INFO: надрукувати msg у stderr;
-     *  — інше або помилка читання: звільнити вже виділені відповіді (затерши
-     *    їх) і повернути PAM_CONV_ERR.
-     * Масив відповідей r виділяється calloc на n елементів; при успіху
-     * записати його в *resp і повернути PAM_SUCCESS. */
-    (void)n; (void)msg; (void)resp;
+    if (n <= 0 || !msg || !resp) return PAM_CONV_ERR;
+    struct pam_response *r = calloc((size_t)n, sizeof *r);
+    if (!r) return PAM_CONV_ERR;
+    for (int i = 0; i < n; i++) {
+        int style = msg[i]->msg_style;
+        const char *m = msg[i]->msg ? msg[i]->msg : "";
+        if (style == PAM_PROMPT_ECHO_OFF || style == PAM_PROMPT_ECHO_ON) {
+            char buf[PWMAX];
+            int echo = (style == PAM_PROMPT_ECHO_ON);
+            if (read_secret(m, buf, sizeof buf, echo) != 0) {
+                explicit_bzero(buf, sizeof buf);
+                goto fail;
+            }
+            r[i].resp = strdup(buf);
+            explicit_bzero(buf, sizeof buf);
+            if (!r[i].resp) goto fail;
+        } else if (style == PAM_ERROR_MSG || style == PAM_TEXT_INFO) {
+            fprintf(stderr, "%s\n", m);
+        } else {
+            goto fail;
+        }
+    }
+    *resp = r;
+    return PAM_SUCCESS;
+fail:
+    for (int j = 0; j < n; j++) {
+        if (r[j].resp) {
+            explicit_bzero(r[j].resp, strlen(r[j].resp));
+            free(r[j].resp);
+        }
+    }
+    free(r);
     return PAM_CONV_ERR;
 }
 
