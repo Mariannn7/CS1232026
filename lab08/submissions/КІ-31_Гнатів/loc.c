@@ -13,6 +13,7 @@
  * Помилка у файлі:  повідомлення «ФАЙЛ:РЯДОК: …» у stderr, код 2.
  */
 #define _GNU_SOURCE
+#include <errno.h>
 #include <langinfo.h>
 #include <locale.h>
 #include <stdio.h>
@@ -78,26 +79,38 @@ static int cmd_show(void)
 /* Розібрати число в рядку s (без пробілів довкола). Число записано
  * з крапкою незалежно від локалі процесу. Повертає 0 і *out або −1,
  * якщо рядок не є числом повністю. */
+static locale_t c_locale(void)
+{
+    static locale_t loc = (locale_t)0;
+    if (!loc)
+        loc = newlocale(LC_NUMERIC_MASK, "C", (locale_t)0);
+    return loc;
+}
+
 static int parse_number(const char *s, double *out)
 {
-    /* TODO 4a. Зараз — як у багатьох реальних програмах: strtod, а залишок
-     * рядка не перевіряється. strtod читає число за правилами LC_NUMERIC
-     * поточної локалі, тож в українській локалі «3.5» стає 3, а «3,5» — 3.5.
-     * Перепишіть: розбирайте за правилами локалі "C", не змінюючи локаль
-     * процесу (newlocale + strtod_l; об'єкт локалі створіть один раз),
-     * і повертайте −1, якщо після числа щось залишилося або числа немає. */
-    *out = strtod(s, NULL);
+    if (!s || *s == '\0')
+        return -1;
+    locale_t loc = c_locale();
+    if (!loc)
+        return -1;
+    char *end = NULL;
+    errno = 0;
+    double v = strtod_l(s, &end, loc);
+    if (end == s || *end != '\0' || errno == ERANGE)
+        return -1;
+    *out = v;
     return 0;
 }
 
 /* Записати число v у buf так, щоб parse_number прочитав його назад без втрат. */
 static void format_number(double v, char *buf, size_t n)
 {
-    /* TODO 4b. printf форматує число за LC_NUMERIC: в українській локалі
-     * вийде «3,5», і наступна програма такого файла не прочитає.
-     * Перемкніть локаль лише для цього потоку (uselocale) на "C",
-     * відформатуйте і поверніть попередню. */
+    locale_t loc = c_locale();
+    locale_t prev = loc ? uselocale(loc) : (locale_t)0;
     snprintf(buf, n, "%.17g", v);
+    if (loc)
+        uselocale(prev);
 }
 
 static char *trim(char *s)
