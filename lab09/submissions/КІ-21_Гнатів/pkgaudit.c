@@ -248,17 +248,24 @@ typedef void (*dep_cb)(const char *name, void *ctx);
  * Назва — лише сама назва: без пробілів, дужок і кваліфікатора. */
 static void parse_deps(const char *field, dep_cb cb, void *ctx)
 {
-    /* TODO 3. Розберіть поле й викличте cb(назва, ctx) для кожної назви —
-     * і для обов'язкових залежностей, і для кожної з альтернатив.
-     *   - поле може бути NULL або порожнім — тоді нічого не робити;
-     *   - не псуйте field: розбирайте копію (xstrdup) і звільніть її;
-     *   - strtok_r для ',' і всередині — ще один strtok_r для '|'
-     *     (strtok без _r тут не годиться: два розбори вкладені);
-     *   - з кожного шматка приберіть пробіли (trim) і відріжте все, що
-     *     починається з пробілу, '(', '[', '<' або ':' (strcspn).
-     *
-     * Каркас не знаходить жодної залежності. */
-    (void)field; (void)cb; (void)ctx;
+    if (!field || !*field)
+        return;
+    char *copy = xstrdup(field);
+    char *save_comma = NULL;
+    for (char *group = strtok_r(copy, ",", &save_comma);
+         group != NULL;
+         group = strtok_r(NULL, ",", &save_comma)) {
+        char *save_pipe = NULL;
+        for (char *alt = strtok_r(group, "|", &save_pipe);
+             alt != NULL;
+             alt = strtok_r(NULL, "|", &save_pipe)) {
+            char *t = trim(alt);
+            t[strcspn(t, " \t([<:")] = '\0';
+            if (*t)
+                cb(t, ctx);
+        }
+    }
+    free(copy);
 }
 
 /* ---------- stats ---------- */
@@ -313,19 +320,35 @@ static int cmd_deps(const char *name)
  * що надають (Provides) віртуальний пакет name. */
 struct mark_ctx { const struct pkg *self; };
 
+struct prov_ctx {
+    const char *target;
+    int found;
+};
+
+static void check_prov(const char *pname, void *ctx)
+{
+    struct prov_ctx *pc = ctx;
+    if (!strcmp(pname, pc->target))
+        pc->found = 1;
+}
+
 static void mark_used(const char *name, void *ctx)
 {
-    /* TODO 4. Пакет pkgs[i] потрібен (used = 1), якщо
-     *   - його назва збігається з name, або
-     *   - у його полі Provides є name (розберіть Provides тією самою
-     *     parse_deps: синтаксис у Provides такий самий — «назва (= версія)»).
-     * Залежність пакета від самого себе (m->self) не рахується.
-     * Підказка: щоб дізнатися з колбека parse_deps, чи трапилася назва,
-     * передайте через ctx невелику структуру або масив.
-     *
-     * Каркас нічого не позначає: усі пакети, крім обов'язкових, — «листки». */
     const struct mark_ctx *m = ctx;
-    (void)name; (void)m;
+    for (size_t i = 0; i < npkgs; i++) {
+        if (&pkgs[i] == m->self || pkgs[i].used)
+            continue;
+        if (!strcmp(pkgs[i].name, name)) {
+            pkgs[i].used = 1;
+            continue;
+        }
+        if (pkgs[i].provides && pkgs[i].provides[0]) {
+            struct prov_ctx pc = { name, 0 };
+            parse_deps(pkgs[i].provides, check_prov, &pc);
+            if (pc.found)
+                pkgs[i].used = 1;
+        }
+    }
 }
 
 static int cmd_leaves(void)
