@@ -1,18 +1,16 @@
 Source: lab09-pkgtools
 Section: admin
 Priority: optional
-Maintainer: Ім'я Прізвище <you@example.org>
+Maintainer: Marian Hnativ <marian.hnativ@student.karazin.ua>
 Standards-Version: 4.7.0
 Rules-Requires-Root: no
 
-# TODO 5a. Опис двійкового пакета — розділ 6.1 ЛР:
-#   Architecture — для скомпільованої програми не all;
-#   Depends — не вписуйте вручну: ${shlibs:Depends} підставить dpkg-shlibdeps,
-#             ${misc:Depends} — інші інструменти збирання;
-#   Description — короткий опис у першому рядку, далі довгий: кожен рядок
-#             з пробілу, порожній рядок — « .»;
-#   Maintainer вище — ваші ім'я та пошта латиницею.
 Package: lab09-pkgtools
-Architecture: all
-Depends: libc6
-Description: TODO
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Package version comparison and installed-package audit
+ vercmp compares Debian package versions using the dpkg algorithm,
+ supporting epochs, tildes, and revisions.
+ .
+ pkgaudit inspects the local dpkg status database to report disk usage,
+ dependency graphs, leaf packages, and system snapshots.
